@@ -109,7 +109,19 @@ function normalizarVariables(v) {
   };
 }
 
-// ── POST /calcular-pdf → PDF binario ─────────────────────────────────────────
+// ── Tokens temporales para descarga de PDF (TTL 10 min) ──────────────────────
+const pdfTokens = new Map();
+const PDF_TOKEN_TTL = 10 * 60 * 1000;
+
+function registrarToken(token, filePath) {
+  pdfTokens.set(token, { filePath, ts: Date.now() });
+  setTimeout(() => {
+    const entry = pdfTokens.get(token);
+    if (entry) { try { fs.unlinkSync(entry.filePath); } catch {} pdfTokens.delete(token); }
+  }, PDF_TOKEN_TTL);
+}
+
+// ── POST /calcular-pdf → JSON con URL de descarga (para Superchat) ────────────
 app.post('/calcular-pdf', requireApiKey, async (req, res) => {
   const variables = req.body;
   if (!variables?.cedula) {
@@ -117,10 +129,10 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
   }
 
   const cedula  = String(variables.cedula).replace(/\D/g, '');
-  const outPath = path.join(os.tmpdir(), `liquidacion_${cedula}_${Date.now()}.pdf`);
+  const token   = `${cedula}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const outPath = path.join(os.tmpdir(), `liquidacion_${token}.pdf`);
 
   try {
-    // Usar caché si existe; si no, llamar a OpenAI
     let data = cacheGet(cedula);
     if (!data) {
       data = await calcularLiquidacion(normalizarVariables(variables));
@@ -128,21 +140,41 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
     }
 
     await generatePDFV2(data, outPath);
+    registrarToken(token, outPath);
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Liquidacion_${cedula}.pdf"`);
-    const stream = fs.createReadStream(outPath);
-    stream.pipe(res);
-    stream.on('end',  () => { try { fs.unlinkSync(outPath); } catch {} });
-    stream.on('error', (err) => {
-      console.error('[calcular-pdf] stream error:', err.message);
-      if (!res.headersSent) res.status(500).json({ error: 'Error enviando PDF.' });
+    const baseUrl = process.env.BASE_URL ?? `${req.protocol}://${req.get('host')}`;
+    const r = data.resumen ?? {};
+    const montoFmt = Number(r.monto_neto ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    res.json({
+      pdf_url:    `${baseUrl}/pdf/${token}`,
+      filename:   `Liquidacion_${cedula}.pdf`,
+      cedula,
+      nombre:     data.datos_trabajador?.nombre ?? '',
+      monto_neto: `Bs. ${montoFmt}`,
     });
   } catch (err) {
     console.error('[calcular-pdf] error:', err.message);
     try { fs.unlinkSync(outPath); } catch {}
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── GET /pdf/:token → descarga el PDF generado (uso interno de Superchat) ─────
+app.get('/pdf/:token', (req, res) => {
+  const entry = pdfTokens.get(req.params.token);
+  if (!entry || Date.now() - entry.ts > PDF_TOKEN_TTL) {
+    return res.status(404).json({ error: 'PDF no disponible o expirado.' });
+  }
+  const cedula = req.params.token.split('_')[0];
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="Liquidacion_${cedula}.pdf"`);
+  const stream = fs.createReadStream(entry.filePath);
+  stream.pipe(res);
+  stream.on('end', () => {
+    try { fs.unlinkSync(entry.filePath); } catch {}
+    pdfTokens.delete(req.params.token);
+  });
 });
 
 // ── Health check ──────────────────────────────────────────────────────────────
