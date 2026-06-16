@@ -10,7 +10,9 @@
     "start": "node src/index.js"
   },
   "jest": {
-    "testMatch": ["**/tests/**/*.test.js"]
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ]
   },
   "keywords": [],
   "author": "",
@@ -20,6 +22,7 @@
     "axios": "^1.17.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "openai": "^6.42.0",
     "pdfkit": "^0.19.1"
   },
   "devDependencies": {

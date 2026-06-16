@@ -39,6 +39,42 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// ── Calcular liquidación y generar PDF ───────────────────────────────────────
+app.post('/calcular-pdf', async (req, res) => {
+  const os   = require('os');
+  const path = require('path');
+  const fs   = require('fs');
+  const { calcularLiquidacion } = require('./openaiClient');
+  const { generatePDFV2 }       = require('./pdfGeneratorV2');
+
+  const variables = req.body;
+  if (!variables || !variables.cedula) {
+    return res.status(400).json({ error: 'Faltan variables requeridas (cedula mínimo).' });
+  }
+
+  const cedula   = String(variables.cedula).replace(/\D/g, '');
+  const outPath  = path.join(os.tmpdir(), `liquidacion_${cedula}_${Date.now()}.pdf`);
+
+  try {
+    const data = await calcularLiquidacion(variables);
+    await generatePDFV2(data, outPath);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Liquidacion_${cedula}.pdf"`);
+    const stream = fs.createReadStream(outPath);
+    stream.pipe(res);
+    stream.on('end', () => { try { fs.unlinkSync(outPath); } catch {} });
+    stream.on('error', (err) => {
+      console.error('[calcular-pdf] stream error:', err.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Error enviando PDF.' });
+    });
+  } catch (err) {
+    console.error('[calcular-pdf] error:', err.message);
+    try { fs.unlinkSync(outPath); } catch {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
