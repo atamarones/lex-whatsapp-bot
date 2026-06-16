@@ -88,6 +88,27 @@ app.post('/calcular', requireApiKey, async (req, res) => {
   }
 });
 
+// ── Normaliza variables de Superchat a nombres explícitos para OpenAI ────────
+function normalizarVariables(v) {
+  return {
+    cedula:                      v.cedula,
+    nombre:                      v.nombre,
+    empresa:                     v.empresa,
+    cargo:                       v.cargo,
+    salario_mensual:             v.salario            ?? v.salario_mensual,
+    tipo_salario:                v.tipo_salario,
+    fecha_ingreso:               v.f_ingreso          ?? v.fecha_ingreso,
+    fecha_egreso:                v.f_egreso           ?? v.fecha_egreso,
+    motivo_terminacion:          v.motivo_terminacion_laboral ?? v.motivo_terminacion,
+    anticipo_prestaciones:       v.anticipo_prestaciones,
+    empresa_debe_utilidades:     v.empresa_debe_utilidades,
+    ultimos_pagos_3_meses:       v['ultimo _pago_3meses'] ?? v.ultimos_pagos_3_meses,
+    utilidades_pendientes:       v.utilidades_pendientes,
+    vacaciones_pendientes:       v.vacaciones_pendientes,
+    vacaciones_vencidas:         v.vacaciones_vencidas,
+  };
+}
+
 // ── POST /calcular-pdf → PDF binario ─────────────────────────────────────────
 app.post('/calcular-pdf', requireApiKey, async (req, res) => {
   const variables = req.body;
@@ -102,7 +123,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
     // Usar caché si existe; si no, llamar a OpenAI
     let data = cacheGet(cedula);
     if (!data) {
-      data = await calcularLiquidacion(variables);
+      data = await calcularLiquidacion(normalizarVariables(variables));
       cacheSet(cedula, data);
     }
 
