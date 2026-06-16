@@ -308,32 +308,46 @@ async function handleMessage(phone, message) {
 
 // ── Callbacks de timeout ────────────────────────────────────────────────────
 async function generateAndSendPDF(phone, session) {
-  const { generatePDF } = require('./pdfGenerator');
-  const { sendDocument } = require('./whapiClient');
-  const { formatBs }     = require('./utils');
+  const { calcularLiquidacion } = require('./openaiClient');
+  const { generatePDFV2 }       = require('./pdfGeneratorV2');
+  const { sendDocument }        = require('./whapiClient');
   const os   = require('os');
   const path = require('path');
   const fs   = require('fs');
 
-  const data   = session.data;
-  const result = data._result ?? calcularPrestaciones(data);
-  const ts     = Date.now();
-  const outPath = path.join(os.tmpdir(), `${data.cedula}_${ts}.pdf`);
+  const d       = session.data;
+  const outPath = path.join(os.tmpdir(), `${d.cedula}_${Date.now()}.pdf`);
+
+  // Mapeo sesión → variables para OpenAI
+  const variables = {
+    nombre:               d.fullName,
+    cedula:               d.cedula,
+    cargo:                d.cargo,
+    tipo_nomina:          d.tipoNomina,
+    fecha_ingreso:        d.fechaIngreso,
+    fecha_egreso:         d.fechaEgreso,
+    salario_mensual_usd:  d.salarioMensualUSD,
+    tasa_bcv:             d.tasaBCV,
+    bono_fabrica:         d.bonoFabrica,
+    motivo_retiro:        d.motivoRetiro,
+    bonificacion_especial: d.bonificacionEspecial,
+  };
 
   try {
-    await generatePDF({ workerData: data, calcResult: result, outputPath: outPath });
-    const filename = `Liquidacion_${data.cedula}.pdf`;
-    await sendDocument(phone, outPath, filename, `📄 *Planilla de Liquidación*\nMONTO: Bs. ${formatBs(result.montoAPagar)}`);
-    await sendText(phone, STATES.DONE.prompt(data));
+    const data = await calcularLiquidacion(variables);
+    await generatePDFV2(data, outPath);
+
+    const monto = data.resumen?.monto_neto ?? 0;
+    const montoFmt = Number(monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const filename  = `Liquidacion_${d.cedula}.pdf`;
+
+    await sendDocument(phone, outPath, filename, `📄 *Planilla de Liquidación*\nMONTO NETO: Bs. ${montoFmt}`);
+    await sendText(phone, STATES.DONE.prompt(d));
     sm.updateState(phone, 'DONE');
   } catch (err) {
     console.error('[pdf] error generando PDF:', err);
-    // Fallback: enviar resumen en texto
     await sendText(phone,
-      `⚠️ No pude generar el PDF. Aquí tu resumen:\n\n` +
-      `💰 Prestaciones: Bs. ${formatBs(result.prestacionesSociales)}\n` +
-      `💰 MONTO A PAGAR: Bs. ${formatBs(result.montoAPagar)}\n\n` +
-      `Contacta a soporte para el documento formal.`
+      `⚠️ No pude generar el PDF en este momento.\n\nContacta a soporte para el documento formal.`
     );
   } finally {
     try { fs.unlinkSync(outPath); } catch {}

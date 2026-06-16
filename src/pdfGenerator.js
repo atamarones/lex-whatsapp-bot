@@ -140,9 +140,6 @@ function generatePDF({ workerData: d, calcResult: r, outputPath }) {
       );
     doc.moveDown(1);
 
-    // ── SECCIÓN 7: Firmas ─────────────────────────────────────────────────────
-    drawSignatureLines(doc, pageW);
-
     // ── FOOTER ───────────────────────────────────────────────────────────────
     doc
       .fillColor(GRAY)
