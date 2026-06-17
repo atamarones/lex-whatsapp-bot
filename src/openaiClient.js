@@ -17,7 +17,15 @@ async function calcularLiquidacion(variables) {
   await client.beta.threads.messages.create(thread.id, {
     role: 'user',
     content:
-      `Calcula la liquidación laboral con los siguientes datos y responde ÚNICAMENTE con el JSON especificado:\n\n` +
+      `Calcula la liquidación laboral con los siguientes datos y responde ÚNICAMENTE con el JSON especificado.\n\n` +
+      `REGLAS OBLIGATORIAS:\n` +
+      `1. Calcula SIEMPRE la fracción del año en curso al momento del egreso, adicional a los años completos:\n` +
+      `   - Fracción de vacaciones del año en curso (Art. 190 LOTTT): días proporcionales al tiempo transcurrido desde el último aniversario laboral.\n` +
+      `   - Fracción de bono vacacional del año en curso (Art. 192 LOTTT): días proporcionales al tiempo transcurrido desde el último aniversario laboral.\n` +
+      `   - Fracción de utilidades del año en curso (Art. 131 LOTTT): días proporcionales a los meses trabajados en el año de egreso.\n` +
+      `2. Estas fracciones son SIEMPRE exigibles por ley al terminar la relación laboral, independientemente del motivo de terminación.\n` +
+      `3. Si el trabajador tiene vacaciones vencidas no disfrutadas, inclúyelas como concepto adicional.\n\n` +
+      `Datos del trabajador:\n` +
       JSON.stringify(variables, null, 2),
   });
 

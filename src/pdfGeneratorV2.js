@@ -111,12 +111,18 @@ function generatePDFV2(data, outputPath) {
       .text(exp.fundamento_legal ?? '–', { align: 'justify', lineGap: 2 });
     doc.moveDown(0.8);
 
-    if (exp.observaciones) {
-      sectionTitle(doc, '6. OBSERVACIONES Y CONDICIONES ESPECIALES', W);
-      doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
-        .text(exp.observaciones, { align: 'justify', lineGap: 2 });
-      doc.moveDown(0.8);
-    }
+    sectionTitle(doc, '6. OBSERVACIONES Y CONDICIONES ESPECIALES', W);
+    const disclaimerDeducciones =
+      'IMPORTANTE: Este cálculo NO contempla deducciones de ley (IVSS, RPE, FAOV, INCE) ' +
+      'ni deducciones por préstamos otorgados por el empleador, adelantos salariales u otras ' +
+      'deducciones particulares. El monto neto reflejado es referencial y podrá diferir del ' +
+      'pago efectivo una vez aplicadas las deducciones correspondientes.';
+    const observacionesTexto = exp.observaciones
+      ? `${exp.observaciones}\n\n${disclaimerDeducciones}`
+      : disclaimerDeducciones;
+    doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
+      .text(observacionesTexto, { align: 'justify', lineGap: 2 });
+    doc.moveDown(0.8);
 
     sectionTitle(doc, '7. CUADRO RESUMEN FINAL', W);
     const resumenRows = [
