@@ -160,7 +160,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
   }
 });
 
-// ── GET /pdf/:token → descarga el PDF generado (uso interno de Superchat) ─────
+// ── GET /pdf/:token → descarga el PDF generado ────────────────────────────────
 app.get('/pdf/:token', (req, res) => {
   const entry = pdfTokens.get(req.params.token);
   if (!entry || Date.now() - entry.ts > PDF_TOKEN_TTL) {
@@ -169,12 +169,7 @@ app.get('/pdf/:token', (req, res) => {
   const cedula = req.params.token.split('_')[0];
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="Liquidacion_${cedula}.pdf"`);
-  const stream = fs.createReadStream(entry.filePath);
-  stream.pipe(res);
-  stream.on('end', () => {
-    try { fs.unlinkSync(entry.filePath); } catch {}
-    pdfTokens.delete(req.params.token);
-  });
+  fs.createReadStream(entry.filePath).pipe(res);
 });
 
 // ── Health check ──────────────────────────────────────────────────────────────
