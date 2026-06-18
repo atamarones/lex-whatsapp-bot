@@ -2,6 +2,7 @@
 
 const sm          = require('./sessionManager');
 const { calcularPrestaciones } = require('./calculator');
+const { tasaDelMesEgreso }     = require('./bcvRates');
 const { sendText, sendImage }  = require('./whapiClient');
 const { isValidFecha, limpiarCedula, parseNumber, formatBs } = require('./utils');
 const path = require('path');
@@ -77,29 +78,20 @@ const STATES = {
         : { valid: false, error: 'La fecha de egreso debe ser posterior al ingreso.' };
     },
     field: 'fechaEgreso',
-    next: 'SALARIO_USD',
+    next: 'SALARIO_BS',
   },
-  SALARIO_USD: {
-    prompt: () => `✅ Fechas registradas.\n\n¿Cuál es tu *salario mensual en USD*? _(ej. 250.50)_`,
+  SALARIO_BS: {
+    prompt: () => `✅ Fechas registradas.\n\n¿Cuál es tu *salario mensual en Bs.*? _(ej. 8500.00)_`,
     validate: (v) => {
       const n = parseNumber(v);
-      return n !== null && n > 0 ? { valid: true, value: n } : { valid: false, error: 'Ingresa un monto positivo en USD (ej. 300.00).' };
+      return n !== null && n > 0 ? { valid: true, value: n } : { valid: false, error: 'Ingresa un monto positivo en Bs. (ej. 8500.00).' };
     },
-    field: 'salarioMensualUSD',
-    next: 'TASA_BCV',
-  },
-  TASA_BCV: {
-    prompt: () => `✅ Salario registrado.\n\n¿Cuál es la *tasa BCV* (Bs por 1 USD)? _(ej. 36.50)_`,
-    validate: (v) => {
-      const n = parseNumber(v);
-      return n !== null && n > 0 ? { valid: true, value: n } : { valid: false, error: 'Ingresa la tasa BCV como número positivo (ej. 36.50).' };
-    },
-    field: 'tasaBCV',
+    field: 'salarioMensualBs',
     next: 'BONO_FABRICA',
   },
   BONO_FABRICA: {
     prompt: () =>
-      `✅ Tasa BCV registrada.\n\n¿Recibes *bono de fábrica u otro bono no salarial*?\n` +
+      `✅ Salario registrado.\n\n¿Recibes *bono de fábrica u otro bono no salarial*?\n` +
       `Si sí, indica el monto en Bs. Si no, escribe *0* o *no*.`,
     validate: (v) => {
       if (['no', 'n', '0'].includes(v.trim().toLowerCase())) return { valid: true, value: 0 };
@@ -134,15 +126,25 @@ const STATES = {
   },
   CONFIRM_CALC: {
     prompt: (d) => {
-      const result = calcularPrestaciones(d);
-      d._result = result; // cache del cálculo
+      const tasaBCV = tasaDelMesEgreso(d.fechaEgreso) ?? 1;
+      const salarioMensualUSD = d.salarioMensualBs / tasaBCV;
+      const result = calcularPrestaciones({
+        fechaIngreso:         d.fechaIngreso,
+        fechaEgreso:          d.fechaEgreso,
+        salarioMensualUSD,
+        tasaBCV,
+        bonificacionEspecial: d.bonificacionEspecial ?? 0,
+      });
+      d._result = result;
+      d._tasaBCV = tasaBCV;
+      d._salarioMensualUSD = salarioMensualUSD;
       return (
         `📊 *RESUMEN DE TU CASO*\n\n` +
         `👤 *${d.fullName}* | C.I. ${d.cedula}\n` +
         `💼 ${d.cargo} | ${d.tipoNomina}\n` +
         `📅 ${d.fechaIngreso} → ${d.fechaEgreso}\n` +
-        `💵 $${d.salarioMensualUSD} USD × ${d.tasaBCV} BCV = *Bs. ${formatBs(result.salarioMensualBs)}*\n` +
-        `⏱ ${result.totalAnos} años, ${result.mesesFraccion} meses de servicio\n\n` +
+        `💵 Salario mensual: *Bs. ${formatBs(d.salarioMensualBs)}*\n` +
+        `⏱ ${result.totalAnos} año(s), ${result.mesesExactos % 12} mes(es) y ${result.diasExtra} día(s)\n\n` +
         `💰 *ESTIMADO LIQUIDACIÓN*\n` +
         `• Prestaciones Sociales: *Bs. ${formatBs(result.prestacionesSociales)}*\n` +
         `• Intereses Art.143:     *Bs. ${formatBs(result.interesesAcumulados)}*\n` +
@@ -306,11 +308,10 @@ async function handleMessage(phone, message) {
   }
 }
 
-// ── Callbacks de timeout ────────────────────────────────────────────────────
+// ── Generación de PDF (sin OpenAI) ─────────────────────────────────────────
 async function generateAndSendPDF(phone, session) {
-  const { calcularLiquidacion } = require('./openaiClient');
-  const { generatePDFV2 }       = require('./pdfGeneratorV2');
-  const { sendDocument }        = require('./whapiClient');
+  const { generatePDF }  = require('./pdfGenerator');
+  const { sendDocument } = require('./whapiClient');
   const os   = require('os');
   const path = require('path');
   const fs   = require('fs');
@@ -318,28 +319,33 @@ async function generateAndSendPDF(phone, session) {
   const d       = session.data;
   const outPath = path.join(os.tmpdir(), `${d.cedula}_${Date.now()}.pdf`);
 
-  // Mapeo sesión → variables para OpenAI
-  const variables = {
-    nombre:               d.fullName,
-    cedula:               d.cedula,
-    cargo:                d.cargo,
-    tipo_nomina:          d.tipoNomina,
-    fecha_ingreso:        d.fechaIngreso,
-    fecha_egreso:         d.fechaEgreso,
-    salario_mensual_usd:  d.salarioMensualUSD,
-    tasa_bcv:             d.tasaBCV,
-    bono_fabrica:         d.bonoFabrica,
-    motivo_retiro:        d.motivoRetiro,
-    bonificacion_especial: d.bonificacionEspecial,
+  // Usar cache del cálculo si ya existe (de CONFIRM_CALC), o recalcular
+  const tasaBCV           = d._tasaBCV           ?? (tasaDelMesEgreso(d.fechaEgreso) ?? 1);
+  const salarioMensualUSD = d._salarioMensualUSD ?? (d.salarioMensualBs / tasaBCV);
+  const calcResult = d._result ?? calcularPrestaciones({
+    fechaIngreso:         d.fechaIngreso,
+    fechaEgreso:          d.fechaEgreso,
+    salarioMensualUSD,
+    tasaBCV,
+    bonificacionEspecial: d.bonificacionEspecial ?? 0,
+  });
+
+  const workerData = {
+    fullName:         d.fullName,
+    cedula:           d.cedula,
+    cargo:            d.cargo,
+    tipoNomina:       d.tipoNomina,
+    fechaIngreso:     d.fechaIngreso,
+    fechaEgreso:      d.fechaEgreso,
+    salarioMensualBs: d.salarioMensualBs,
+    motivoRetiro:     d.motivoRetiro,
   };
 
   try {
-    const data = await calcularLiquidacion(variables);
-    await generatePDFV2(data, outPath);
+    await generatePDF({ workerData, calcResult, outputPath: outPath });
 
-    const monto = data.resumen?.monto_neto ?? 0;
-    const montoFmt = Number(monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const filename  = `Liquidacion_${d.cedula}.pdf`;
+    const montoFmt = calcResult.montoAPagar.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const filename = `Liquidacion_${d.cedula}.pdf`;
 
     await sendDocument(phone, outPath, filename, `📄 *Planilla de Liquidación*\nMONTO NETO: Bs. ${montoFmt}`);
     await sendText(phone, STATES.DONE.prompt(d));

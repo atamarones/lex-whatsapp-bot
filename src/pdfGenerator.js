@@ -61,10 +61,8 @@ function generatePDF({ workerData: d, calcResult: r, outputPath }) {
       ['Tipo de Nómina', d.tipoNomina],
       ['Fecha de Ingreso', d.fechaIngreso],
       ['Fecha de Egreso', d.fechaEgreso],
-      ['Tiempo de Servicio', `${r.totalAnos} año(s) y ${r.mesesFraccion} mes(es)`],
-      ['Salario Mensual USD', `$ ${d.salarioMensualUSD?.toFixed(2)}`],
-      ['Tasa BCV', `${d.tasaBCV} Bs/$`],
-      ['Salario Mensual Bs.', `Bs. ${formatBs(r.salarioMensualBs)}`],
+      ['Tiempo de Servicio', `${r.totalAnos} año(s), ${r.mesesExactos % 12} mes(es) y ${r.diasExtra} día(s)`],
+      ['Salario Mensual Bs.', `Bs. ${formatBs(d.salarioMensualBs ?? r.salarioMensualBs)}`],
       ['Salario Diario Normal', `Bs. ${formatBs(r.salarioDiarioNormal)}`],
       ['Salario Diario Integral', `Bs. ${formatBs(r.salarioDiarioIntegral)}`],
       ['Motivo de Retiro', d.motivoRetiro?.replace(/_/g, ' ')],
@@ -91,9 +89,9 @@ function generatePDF({ workerData: d, calcResult: r, outputPath }) {
     const asignRows = [
       ['Prestaciones Sociales', String(Math.floor(r.totalMeses / 3) * 15), formatBs(r.salarioDiarioIntegral), formatBs(r.prestacionesSociales)],
       ['Intereses Art.143 LOTTT', '–', '–', formatBs(r.interesesAcumulados)],
-      [`Utilidades Fracc. (${r.diasUtilidades} días)`, formatBs(r.diasUtilidades / 12 * r.mesesFraccion), formatBs(r.salarioDiarioIntegral), formatBs(r.utilidadesFracc)],
-      [`Vacaciones Fracc. (${r.diasVac} días)`, formatBs(r.diasVac / 12 * r.mesesFraccion), formatBs(r.salarioDiarioNormal), formatBs(r.vacacionesFracc)],
-      [`Bono Vacacional Fracc. (${r.diasBonVac} días)`, formatBs(r.diasBonVac / 12 * r.mesesFraccion), formatBs(r.salarioDiarioNormal), formatBs(r.bonoVacFracc)],
+      [`Utilidades Fracc. (${r.diasUtilidades} días × ${r.mesesUtil} m)`, formatBs(r.diasUtilidadesFrac), formatBs(r.salarioBaseUtil), formatBs(r.utilidadesFracc)],
+      [`Vacaciones Fracc. (${r.diasVac} días × ${r.mesesFraccion} m)`, formatBs(r.diasVac / 12 * r.mesesFraccion), formatBs(r.salarioDiarioNormal), formatBs(r.vacacionesFracc)],
+      [`Bono Vacacional Fracc. (${r.diasBonVac} días × ${r.mesesFraccion} m)`, formatBs(r.diasBonVac / 12 * r.mesesFraccion), formatBs(r.salarioDiarioNormal), formatBs(r.bonoVacFracc)],
       ['Bonificación Especial', '–', '–', formatBs(r.bonificacionEspecial)],
     ];
     drawTable(doc, asignHeaders, asignRows, pageW);
@@ -105,10 +103,10 @@ function generatePDF({ workerData: d, calcResult: r, outputPath }) {
     // ── SECCIÓN 4: Deducciones ────────────────────────────────────────────────
     sectionTitle(doc, '4. DEDUCCIONES');
 
-    const dedHeaders = ['CONCEPTO', 'TASA', 'MESES', 'TOTAL Bs.'];
+    const dedHeaders = ['CONCEPTO', 'TASA', 'BASE Bs.', 'TOTAL Bs.'];
     const dedRows = [
-      ['FAOV (Fondo Habitacional)', '0,132%', String(r.totalMeses), formatBs(r.FAOV)],
-      ['INCE (Educación)', '0,044%', String(r.totalMeses), formatBs(r.INCE)],
+      ['FAOV (Fondo Habitacional)', '1%', formatBs(r.vacacionesFracc + r.bonoVacFracc + r.utilidadesFracc), formatBs(r.FAOV)],
+      ['INCE (Educación)', '0,5%', formatBs(r.utilidadesFracc), formatBs(r.INCE)],
     ];
     drawTable(doc, dedHeaders, dedRows, pageW);
     drawTotalRow(doc, 'TOTAL DEDUCCIONES Bs.', formatBs(r.FAOV + r.INCE), pageW);
