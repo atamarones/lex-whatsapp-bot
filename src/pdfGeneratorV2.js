@@ -102,9 +102,12 @@ function generatePDFV2(data, outputPath) {
     const exp = data.explicacion ?? {};
 
     sectionTitle(doc, '4. METODOLOGÍA DE CÁLCULO APLICADA', W);
-    doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
-      .text(exp.metodologia ?? '–', { align: 'justify', lineGap: 2 });
-    doc.moveDown(0.8);
+    (exp.metodologia ?? '–').split('\n').filter(l => l.trim()).forEach(line => {
+      doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
+        .text(line.trim(), { align: 'justify', lineGap: 1.5 });
+      doc.moveDown(0.3);
+    });
+    doc.moveDown(0.5);
 
     sectionTitle(doc, '5. FUNDAMENTO LEGAL', W);
     doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
@@ -112,16 +115,8 @@ function generatePDFV2(data, outputPath) {
     doc.moveDown(0.8);
 
     sectionTitle(doc, '6. OBSERVACIONES Y CONDICIONES ESPECIALES', W);
-    const disclaimerDeducciones =
-      'IMPORTANTE: Este cálculo incluye las retenciones de FAOV (1%) e INCE (0,5%) conforme a la ley. ' +
-      'No contempla deducciones por IVSS, RPE, préstamos otorgados por el empleador, adelantos salariales ' +
-      'ni anticipos de prestaciones sociales. El monto neto reflejado podrá diferir del pago efectivo ' +
-      'una vez aplicadas dichas deducciones particulares.';
-    const observacionesTexto = exp.observaciones
-      ? `${exp.observaciones}\n\n${disclaimerDeducciones}`
-      : disclaimerDeducciones;
     doc.fillColor(BLACK).fontSize(8.5).font('Helvetica')
-      .text(observacionesTexto, { align: 'justify', lineGap: 2 });
+      .text(exp.observaciones ?? '–', { align: 'justify', lineGap: 2 });
     doc.moveDown(0.8);
 
     sectionTitle(doc, '7. CUADRO RESUMEN FINAL', W);
@@ -142,7 +137,7 @@ function generatePDFV2(data, outputPath) {
 
 function drawHeader(doc, W) {
   doc.fillColor(PURPLE).fontSize(14).font('Helvetica-Bold')
-    .text('LEX – SISTEMA LEGAL AUTOMATIZADO', { align: 'center' });
+    .text('LEGALTRUST – SISTEMA LEGAL AUTOMATIZADO', { align: 'center' });
   doc.fillColor(GRAY).fontSize(9).font('Helvetica')
     .text('Cálculo de Liquidación Laboral – LOTTT 2012', { align: 'center' });
   doc.moveDown(0.3);
@@ -180,19 +175,11 @@ function colWidths(cols, W) {
   return Array(cols).fill(W / cols);
 }
 
-// Estima líneas necesarias para un texto dado un ancho de columna y tamaño de fuente
-function estimarLineas(text, colWidth, fontSize) {
-  const avgCharW   = fontSize * 0.52; // factor Helvetica
-  const charsXLine = Math.max(1, Math.floor(colWidth / avgCharW));
-  return Math.ceil(String(text ?? '–').length / charsXLine);
-}
-
 function drawTable(doc, headers, rows, W) {
   const cols    = headers.length;
   const cw      = colWidths(cols, W);
   const PAD     = 4;
   const FS      = 7.5;
-  const LINE_H  = 10; // alto por línea a 7.5pt
   const MIN_H   = 18;
   let y = doc.y;
 
@@ -207,9 +194,10 @@ function drawTable(doc, headers, rows, W) {
   y += 17;
 
   rows.forEach((row, ri) => {
-    // Calcular altura por la celda que más líneas necesite
-    const lineas = row.map((cell, ci) => estimarLineas(cell, cw[ci] - PAD, FS));
-    const rowH   = Math.max(MIN_H, Math.max(...lineas) * LINE_H + 6);
+    // Altura real medida por PDFKit (evita truncamiento por subestimación)
+    const rowH = Math.max(MIN_H, ...row.map((cell, ci) =>
+      doc.fontSize(FS).font('Helvetica').heightOfString(String(cell ?? '–'), { width: cw[ci] - PAD })
+    )) + 6;
 
     // Salto de página si no cabe
     if (y + rowH > doc.page.height - doc.page.margins.bottom - 30) {

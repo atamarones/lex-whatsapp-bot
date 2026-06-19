@@ -18,17 +18,12 @@ const PORT = process.env.PORT ?? 3000;
 
 app.use(express.json());
 
-// ── Caché en memoria: cedula → { data, ts } (TTL 30 min) ─────────────────────
+// ── Caché en memoria: token → data (sin TTL, cada request genera clave única) ─
 const cache = new Map();
-const CACHE_TTL = 30 * 60 * 1000;
 
-function cacheSet(cedula, data) { cache.set(cedula, { data, ts: Date.now() }); }
-function cacheGet(cedula) {
-  const entry = cache.get(cedula);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(cedula); return null; }
-  return entry.data;
-}
+function cacheKey() { return String(Date.now()); }
+function cacheSet(key, data) { cache.set(key, { data }); }
+function cacheGet(key) { return cache.get(key)?.data ?? null; }
 
 // ── Middleware de autenticación ───────────────────────────────────────────────
 function requireApiKey(req, res, next) {
@@ -88,7 +83,7 @@ function extraerInputs(v) {
     const tipoSalario = String(v.tipo_salario ?? '').toLowerCase().trim();
     let salBs;
     if (tipoSalario === 'variable') {
-      const total3m = safeNum(v['ultimo _pago_3meses'] ?? v.ultimo_pago_3meses);
+      const total3m = safeNum(v.ultimos_pagos_3meses ?? v.ultimo_pago_3meses);
       salBs = total3m > 0 ? total3m / 3 : safeNum(v.salario);
     } else {
       salBs = safeNum(v.salario ?? v.salario_mensual);
@@ -104,7 +99,7 @@ function extraerInputs(v) {
   const utilidadesPendientes = utilPendNum > 0;
   const diasUtilidades = utilPendNum > 0 ? utilPendNum : safeNum(v.dias_utilidades ?? v.diasUtilidades, 30);
 
-  // vacaciones_vencidas: número de PERÍODOS adeudados ("false" → 0)
+  // vacaciones_vencidas: número de DÍAS de vacaciones adeudados ("false" → 0)
   const vacacionesVencidas = safeNum(v.vacaciones_vencidas);
 
   const esFlag = (val) => ['sí', 'si', 'yes', 's', '1', 'true'].includes(String(val ?? '').toLowerCase().trim());
@@ -212,24 +207,22 @@ function armarDataPDF(calcResult, vars, inputs = {}) {
   // ── Conceptos adicionales por flags ──────────────────────────────────────────
   let extraBruto = 0;
 
-  // Vacaciones vencidas: N períodos adeudados (Art. 190)
-  // vacacionesVencidas = número de períodos (no días); cada período = diasVac + diasBonVac
+  // Vacaciones vencidas: días adeudados directamente (Art. 190 y 192)
+  // Bono vacacional = misma cantidad de días que vacaciones (paridad legal Arts. 190 y 192)
   if (inputs.vacacionesVencidas > 0) {
-    const n        = inputs.vacacionesVencidas;
-    const diasVac  = r.diasVac  * n;
-    const diasBV   = r.diasBonVac * n;
+    const diasVac  = inputs.vacacionesVencidas;
     const montoVac = diasVac * r.salarioDiarioNormal;
-    const montoBV  = diasBV  * r.salarioDiarioNormal;
+    const montoBV  = diasVac * r.salarioDiarioNormal;
     conceptos.push({
-      concepto:    `Vacaciones Vencidas – ${n} período(s) × ${r.diasVac} días (Art. 190 LOTTT)`,
+      concepto:    `Vacaciones Vencidas – ${diasVac} días (Art. 190 LOTTT)`,
       dias:        diasVac,
       monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
       monto:       montoVac,
       base_legal:  'Art. 190 LOTTT',
     });
     conceptos.push({
-      concepto:    `Bono Vacacional Vencido – ${n} período(s) × ${r.diasBonVac} días (Art. 192 LOTTT)`,
-      dias:        diasBV,
+      concepto:    `Bono Vacacional Vencido – ${diasVac} días (Art. 192 LOTTT)`,
+      dias:        diasVac,
       monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
       monto:       montoBV,
       base_legal:  'Art. 192 LOTTT',
@@ -352,7 +345,7 @@ app.post('/calcular', requireApiKey, (req, res) => {
 
     const calcResult = calcularPrestaciones(inputs);
     const data = armarDataPDF(calcResult, vars, inputs);
-    cacheSet(cedula, data);
+    cacheSet(cacheKey(), data);
 
     const r = data.resumen;
     res.json({
@@ -381,7 +374,8 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
   const outPath = path.join(os.tmpdir(), `liquidacion_${token}.pdf`);
 
   try {
-    let data = cacheGet(cedula);
+    const ck   = cacheKey();
+    let data   = cacheGet(ck);
 
     if (!data) {
       const inputs = extraerInputs(vars);
@@ -395,7 +389,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
 
       const calcResult = calcularPrestaciones(inputs);
       data = armarDataPDF(calcResult, vars, inputs);
-      cacheSet(cedula, data);
+      cacheSet(ck, data);
     }
 
     await generatePDFV2(data, outPath);
@@ -455,10 +449,10 @@ app.get('/pdf/:token', (req, res) => {
 // ── POST /feedback → guarda valoración del servicio en Airtable ──────────────
 // Body: { cedula?, movil?, valoracion, razon? }
 app.post('/feedback', requireApiKey, async (req, res) => {
-  const { cedula, movil, valoracion, razon } = req.body ?? {};
+  const { cedula, movil, valoracion, razon, motivo_valoracion } = req.body ?? {};
   if (!cedula && !movil) return res.status(400).json({ error: 'Se requiere "cedula" o "movil".' });
 
-  await guardarFeedback({ cedula, movil, valoracion, razon });
+  await guardarFeedback({ cedula, movil, valoracion, razon: razon ?? motivo_valoracion });
   res.json({ ok: true });
 });
 
