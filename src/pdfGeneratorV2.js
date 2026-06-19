@@ -173,26 +173,60 @@ function drawKV(doc, rows, W) {
   doc.y = y;
 }
 
+function colWidths(cols, W) {
+  if (cols === 4) return [W * 0.44, W * 0.14, W * 0.20, W * 0.22];
+  if (cols === 2) return [W * 0.68, W * 0.32];
+  if (cols === 3) return [W * 0.42, W * 0.20, W * 0.38];
+  return Array(cols).fill(W / cols);
+}
+
 function drawTable(doc, headers, rows, W) {
-  const cols = headers.length;
-  const colW = W / cols;
+  const cols  = headers.length;
+  const cw    = colWidths(cols, W);
+  const PAD   = 4;
+  const FS    = 7.5;
+  const MIN_H = 16;
   let y = doc.y;
 
-  doc.rect(50, y, W, 16).fillAndStroke(PURPLE, PURPLE);
+  // Header
+  doc.rect(50, y, W, 17).fillAndStroke(PURPLE, PURPLE);
+  let xh = 52;
   headers.forEach((h, i) => {
     doc.fillColor(WHITE).fontSize(8).font('Helvetica-Bold')
-      .text(h, 52 + i * colW, y + 4, { width: colW - 4, align: i === 0 ? 'left' : 'right' });
+      .text(h, xh, y + 4, { width: cw[i] - PAD, align: i === 0 ? 'left' : 'right', lineBreak: false });
+    xh += cw[i];
   });
-  y += 16;
+  y += 17;
 
   rows.forEach((row, ri) => {
+    // Altura dinámica: máximo entre todas las celdas
+    doc.fontSize(FS).font('Helvetica');
+    const rowH = Math.max(MIN_H, ...row.map((cell, ci) =>
+      doc.heightOfString(String(cell ?? '–'), { width: cw[ci] - PAD }) + 6
+    ));
+
+    // Salto de página si no cabe
+    if (y + rowH > doc.page.height - doc.page.margins.bottom - 30) {
+      doc.addPage();
+      drawHeader(doc, W);
+      y = doc.y;
+    }
+
     const bg = ri % 2 === 0 ? LIGHT : WHITE;
-    doc.rect(50, y, W, 14).fill(bg);
+    doc.rect(50, y, W, rowH).fill(bg);
+
+    let xr = 52;
     row.forEach((cell, ci) => {
-      doc.fillColor(BLACK).fontSize(7.5).font('Helvetica')
-        .text(String(cell ?? '–'), 52 + ci * colW, y + 3, { width: colW - 4, align: ci === 0 ? 'left' : 'right' });
+      doc.fillColor(BLACK).fontSize(FS).font('Helvetica')
+        .text(String(cell ?? '–'), xr, y + 3, {
+          width: cw[ci] - PAD,
+          align:     ci === 0 ? 'left' : 'right',
+          lineBreak: true,
+        });
+      xr += cw[ci];
     });
-    y += 14;
+
+    y += rowH;
   });
   doc.y = y;
 }
