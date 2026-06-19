@@ -27,6 +27,7 @@ async function guardarRegistro(datos) {
         'Nombre':              String(datos.nombre ?? ''),
         'Empresa':             String(datos.empresa ?? ''),
         'Cargo':               String(datos.cargo ?? ''),
+        'Móvil':               String(datos.movil ?? ''),
         'Fecha Ingreso':       String(datos.fechaIngreso ?? ''),
         'Fecha Egreso':        String(datos.fechaEgreso ?? ''),
         'Tiempo Servicio':     String(datos.tiempoServicio ?? ''),

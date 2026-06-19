@@ -357,6 +357,7 @@ async function generateAndSendPDF(phone, session) {
       nombre:           d.fullName,
       empresa:          '',
       cargo:            d.cargo,
+      movil:            phone,
       fechaIngreso:     d.fechaIngreso,
       fechaEgreso:      d.fechaEgreso,
       tiempoServicio:   `${calcResult.totalAnos} año(s), ${calcResult.mesesExactos % 12} mes(es) y ${calcResult.diasExtra} día(s)`,

@@ -407,6 +407,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
       nombre:            data.datos_trabajador.nombre,
       empresa:           data.datos_trabajador.empresa,
       cargo:             data.datos_trabajador.cargo,
+      movil:             String(vars.movil ?? ''),
       fechaIngreso:      data.datos_trabajador.fecha_ingreso,
       fechaEgreso:       data.datos_trabajador.fecha_egreso,
       tiempoServicio:    data.datos_trabajador.tiempo_servicio,
