@@ -451,7 +451,6 @@ app.get('/pdf/:token', (req, res) => {
 // Body: { cedula?, movil?, valoracion, razon? }
 app.post('/feedback', requireApiKey, async (req, res) => {
   const { cedula, movil, valoracion, razon } = req.body ?? {};
-  if (!valoracion) return res.status(400).json({ error: 'Campo "valoracion" requerido.' });
   if (!cedula && !movil) return res.status(400).json({ error: 'Se requiere "cedula" o "movil".' });
 
   await guardarFeedback({ cedula, movil, valoracion, razon });
