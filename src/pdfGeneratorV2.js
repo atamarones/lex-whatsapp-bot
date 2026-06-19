@@ -113,10 +113,10 @@ function generatePDFV2(data, outputPath) {
 
     sectionTitle(doc, '6. OBSERVACIONES Y CONDICIONES ESPECIALES', W);
     const disclaimerDeducciones =
-      'IMPORTANTE: Este cálculo NO contempla deducciones de ley (IVSS, RPE, FAOV, INCE) ' +
-      'ni deducciones por préstamos otorgados por el empleador, adelantos salariales u otras ' +
-      'deducciones particulares. El monto neto reflejado es referencial y podrá diferir del ' +
-      'pago efectivo una vez aplicadas las deducciones correspondientes.';
+      'IMPORTANTE: Este cálculo incluye las retenciones de FAOV (1%) e INCE (0,5%) conforme a la ley. ' +
+      'No contempla deducciones por IVSS, RPE, préstamos otorgados por el empleador, adelantos salariales ' +
+      'ni anticipos de prestaciones sociales. El monto neto reflejado podrá diferir del pago efectivo ' +
+      'una vez aplicadas dichas deducciones particulares.';
     const observacionesTexto = exp.observaciones
       ? `${exp.observaciones}\n\n${disclaimerDeducciones}`
       : disclaimerDeducciones;

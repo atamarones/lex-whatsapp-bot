@@ -121,10 +121,9 @@ Art. 14 Ley del INCE – INCE: 0,5% sobre utilidades.
 `.trim();
 
 const OBSERVACIONES = `
-Cálculo generado con tasas BCV históricas oficiales (fuente: datos mensuales BCV/investing.com).
-Los intereses sobre prestaciones sociales se calculan a la tasa BCV vigente informada por el usuario para el mes de egreso.
-Las prestaciones acumuladas se estimaron usando el salario en USD declarado, convertido con la tasa BCV de cada mes histórico.
-IMPORTANTE: Este cálculo es referencial. No sustituye la liquidación formal del empleador ni constituye asesoría legal. No incluye deducciones por IVSS, RPE, préstamos ni anticipos de prestaciones.
+El salario base utilizado es el último salario mensual declarado en Bolívares, aplicado a todos los períodos conforme al Art. 142 A LOTTT: "calculado con base al último salario devengado".
+Los intereses sobre prestaciones (Art. 143) se calculan a la tasa mensual del 3,945% (47,34% anual), tasa de referencia BCV para prestaciones sociales.
+IMPORTANTE: Este cálculo es referencial y no sustituye la liquidación formal del empleador ni constituye asesoría legal. Incluye retenciones de FAOV (1%) e INCE (0,5%) conforme a la ley. No incluye deducciones por IVSS, RPE, préstamos otorgados por el empleador ni anticipos de prestaciones sociales.
 `.trim();
 
 // ── Convierte resultado de calcularPrestaciones → estructura pdfGeneratorV2 ──
@@ -135,19 +134,20 @@ function armarDataPDF(calcResult, vars, inputs = {}) {
   const tiempoServicio = `${r.totalAnos} año(s), ${r.mesesExactos % 12} mes(es) y ${r.diasExtra} día(s)`;
 
   const metodologia = [
-    `Salario mensual: Bs. ${r.salarioMensualBs.toFixed(2)} (USD ${(vars.salario_mensual_usd ?? vars.salario_usd ?? (r.salarioMensualBs / (vars.tasa_bcv ?? vars.tasaBCV ?? 1))).toFixed(2)} × ${vars.tasa_bcv ?? vars.tasaBCV ?? '–'} BCV).`,
-    `Salario diario normal (SDN): Bs. ${r.salarioDiarioNormal.toFixed(4)} = salario mensual / 30.`,
-    `Salario diario integral (SDI): Bs. ${r.salarioDiarioIntegral.toFixed(4)} = SDN + alícuota bono vacacional (${r.diasBonVac} días) + alícuota utilidades (${r.diasUtilidades} días).`,
-    `Tiempo de servicio: ${tiempoServicio} = ${r.totalMeses} meses totales.`,
-    `Garantía Art. 142 A,B: Bs. ${r.garantiaCapital.toFixed(2)} — depósito de 15 días de SDI por trimestre usando tasa BCV histórica de cada mes.`,
+    `Salario mensual: Bs. ${r.salarioMensualBs.toFixed(2)} (último salario declarado, base de todos los cálculos conforme Art. 142 A LOTTT).`,
+    `Salario diario normal (SDN): Bs. ${r.salarioDiarioNormal.toFixed(2)} = salario mensual / 30.`,
+    `Salario diario integral (SDI): Bs. ${r.salarioDiarioIntegral.toFixed(2)} = SDN + alícuota bono vacacional (${r.diasBonVac} días) + alícuota utilidades (${r.diasUtilidades} días).`,
+    `Tiempo de servicio: ${tiempoServicio} = ${r.totalMeses} meses totales (cada mes iniciado cuenta como completo).`,
+    `Garantía Art. 142 A: Bs. ${r.garantiaCapital.toFixed(2)} — ${Math.floor(r.totalMeses / 3)} depósitos trimestrales de 15 días × SDI + abono en trimestre incompleto al egreso.`,
+    `Adicional Art. 142 B: 2 días de SDI por año de servicio cumplido, acumulativos.`,
     `Finalización Art. 142 C: Bs. ${r.prestacionesFinalizacion.toFixed(2)} = ${r.totalAnos} año(s) × 30 días × SDI.`,
-    `Método aplicado (Art. 142 D – el mayor): ${r.metodoAplicado} → Bs. ${r.prestacionesSociales.toFixed(2)}.`,
-    `Intereses Art. 143: Bs. ${r.interesesAcumulados.toFixed(2)} — calculados mensualmente sobre capital acumulado (tasa mensual BCV aplicada).`,
-    `Utilidades fraccionadas ${egresoAnio}: ${r.diasUtilidadesFrac.toFixed(2)} días × Bs. ${r.salarioBaseUtil.toFixed(4)} (promedio SDN+iBV en el año calendario) = Bs. ${r.utilidadesFracc.toFixed(2)}.`,
-    `Vacaciones fraccionadas: ${(r.diasVac / 12 * r.mesesFraccion).toFixed(4)} días × SDN = Bs. ${r.vacacionesFracc.toFixed(2)}.`,
-    `Bono vacacional fraccionado: ${(r.diasBonVac / 12 * r.mesesFraccion).toFixed(4)} días × SDN = Bs. ${r.bonoVacFracc.toFixed(2)}.`,
-    `FAOV (1%): Bs. ${r.FAOV.toFixed(2)} sobre vacaciones + bono vacacional + utilidades.`,
-    `INCE (0,5%): Bs. ${r.INCE.toFixed(2)} sobre utilidades fraccionadas.`,
+    `Método aplicado (Art. 142 D – el mayor): ${r.metodoAplicado === 'GARANTIA' ? 'Garantía A+B' : 'Finalización C'} → Bs. ${r.prestacionesSociales.toFixed(2)}.`,
+    `Intereses Art. 143: Bs. ${r.interesesAcumulados.toFixed(2)} — tasa 3,945% mensual (47,34% anual), calculados sobre el capital acumulado después de cada depósito trimestral (interés simple).`,
+    `Utilidades fraccionadas ${egresoAnio} (Art. 131): ${r.diasUtilidadesFrac.toFixed(2)} días = ${r.diasUtilidades} días × ${r.mesesUtil} meses / 12. Base: Bs. ${r.salarioBaseUtil.toFixed(2)}/día (promedio SDN del año en curso). Total: Bs. ${r.utilidadesFracc.toFixed(2)}.`,
+    `Vacaciones fraccionadas (Art. 190 y 196): ${(r.diasVac / 12 * r.mesesFraccion).toFixed(2)} días × SDN Bs. ${r.salarioDiarioNormal.toFixed(2)} = Bs. ${r.vacacionesFracc.toFixed(2)}.`,
+    `Bono vacacional fraccionado (Art. 192 y 196): ${(r.diasBonVac / 12 * r.mesesFraccion).toFixed(2)} días × SDN Bs. ${r.salarioDiarioNormal.toFixed(2)} = Bs. ${r.bonoVacFracc.toFixed(2)}.`,
+    `Retención FAOV (Art. 172 LRPH, 1%): Bs. ${r.FAOV.toFixed(2)} sobre vacaciones + bono vacacional + utilidades = Bs. ${(r.vacacionesFracc + r.bonoVacFracc + r.utilidadesFracc).toFixed(2)}.`,
+    `Retención INCE (Art. 14 LINCE, 0,5%): Bs. ${r.INCE.toFixed(2)} sobre utilidades fraccionadas = Bs. ${r.utilidadesFracc.toFixed(2)}.`,
   ].join('\n');
 
   const conceptos = [
