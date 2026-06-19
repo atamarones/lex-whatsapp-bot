@@ -121,51 +121,53 @@ function calcularPrestaciones(inputs) {
     calcularSDI(salarioDiarioNormal, diasBonVacActual, diasUtilidades);
 
   // ── Art.142 A,B: Garantía trimestral con interés mensual BCV (Art.143) ─────
-  // Usa tasa BCV HISTÓRICA de cada mes para calcular el salario de ese mes.
+  // LOTTT Art.142 literal A: "calculado con base al ÚLTIMO salario devengado".
+  // Se usa el salario actual en Bs como constante para todos los períodos.
   // Interés simple (no compuesto) sobre el capital acumulado post-depósito.
   let saldoCapital        = 0;
   let interesesAcumulados = 0;
-  let sumSdnUtil          = 0;  // acumula (SDN + iBV) de los meses en año calendario
-  let contMesesUtil       = 0;  // cantidad de esos meses
+  let sumSdnUtil          = 0;
+  let contMesesUtil       = 0;
 
   const mesesUtil    = mesesEnAñoCalendario(fechaIngreso, fechaEgreso);
   const residuoMeses = totalMeses % 3;
 
   for (let mes = 1; mes <= totalMeses; mes++) {
-    // Fecha del primer día de este mes de servicio
     const fechaMes = new Date(Date.UTC(
       ingresoDate.getUTCFullYear(),
       ingresoDate.getUTCMonth() + (mes - 1),
       1, 12, 0, 0,
     ));
-    const anioMes  = fechaMes.getUTCFullYear();
-    const numMes   = fechaMes.getUTCMonth() + 1;
+    const anioMes = fechaMes.getUTCFullYear();
+    const numMes  = fechaMes.getUTCMonth() + 1;
 
-    // Tasa BCV de ese mes (histórica o actual si es el mes de egreso)
-    const tasaMes     = getTasaMes(anioMes, numMes, mesEgresoKey, tasaBCV);
-    const sdnMes      = salarioMensualUSD * tasaMes / 30;
-
-    // Años completados al inicio de este mes (para días de bono vacacional)
-    const añosAlMes   = Math.floor((mes - 1) / 12);
-    const diasBvMes   = 15 + añosAlMes;
+    // SDN constante al salario actual (Art.142 A: "último salario devengado")
+    const sdnMes    = salarioDiarioNormal;
+    const añosAlMes = Math.floor((mes - 1) / 12);
+    const diasBvMes = 15 + añosAlMes;
     const { iBV: iBvMes, sdi: sdiMes } = calcularSDI(sdnMes, diasBvMes, diasUtilidades);
 
-    // Acumular (SDN + iBV) para los meses que caen en el año calendario de egreso
-    // (usados en el promedio base de utilidades fraccionadas)
-    const egresoAnio = egresoDate.getUTCFullYear();
-    const mismoAño   = anioMes === egresoAnio;
+    // Acumular (SDN + iBV) para meses del año calendario de egreso (base utilidades)
+    const egresoAnio     = egresoDate.getUTCFullYear();
+    const mismoAño       = anioMes === egresoAnio;
     const mismoAñoInicio = ingresoDate.getUTCFullYear() === egresoAnio;
     if (mismoAño && (mismoAñoInicio ? numMes >= ingresoDate.getUTCMonth() + 1 : true)) {
-      sumSdnUtil   += sdnMes + iBvMes;
+      sumSdnUtil    += sdnMes + iBvMes;
       contMesesUtil += 1;
     }
 
-    // Depósito trimestral (cada 3 meses) y abono al egreso en trimestre incompleto
+    // Depósito trimestral y abono al egreso en trimestre incompleto (Art.142 A)
     if (mes % 3 === 0) {
       saldoCapital += sdiMes * 15;
     }
     if (mes === totalMeses && residuoMeses > 0) {
       saldoCapital += sdiMes * 15;
+    }
+
+    // Art.142 B: 2 días adicionales por año completado (se acumulan al capital)
+    if (mes % 12 === 0) {
+      const añoCompletado = mes / 12;
+      saldoCapital += sdiMes * Math.min(añoCompletado * 2, 30);
     }
 
     // Interés mensual sobre capital (Art.143) — después del depósito
