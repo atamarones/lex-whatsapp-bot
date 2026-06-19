@@ -180,12 +180,20 @@ function colWidths(cols, W) {
   return Array(cols).fill(W / cols);
 }
 
+// Estima líneas necesarias para un texto dado un ancho de columna y tamaño de fuente
+function estimarLineas(text, colWidth, fontSize) {
+  const avgCharW   = fontSize * 0.52; // factor Helvetica
+  const charsXLine = Math.max(1, Math.floor(colWidth / avgCharW));
+  return Math.ceil(String(text ?? '–').length / charsXLine);
+}
+
 function drawTable(doc, headers, rows, W) {
-  const cols  = headers.length;
-  const cw    = colWidths(cols, W);
-  const PAD   = 4;
-  const FS    = 7.5;
-  const MIN_H = 16;
+  const cols    = headers.length;
+  const cw      = colWidths(cols, W);
+  const PAD     = 4;
+  const FS      = 7.5;
+  const LINE_H  = 10; // alto por línea a 7.5pt
+  const MIN_H   = 18;
   let y = doc.y;
 
   // Header
@@ -199,11 +207,9 @@ function drawTable(doc, headers, rows, W) {
   y += 17;
 
   rows.forEach((row, ri) => {
-    // Altura dinámica: máximo entre todas las celdas
-    doc.fontSize(FS).font('Helvetica');
-    const rowH = Math.max(MIN_H, ...row.map((cell, ci) =>
-      doc.heightOfString(String(cell ?? '–'), { width: cw[ci] - PAD }) + 6
-    ));
+    // Calcular altura por la celda que más líneas necesite
+    const lineas = row.map((cell, ci) => estimarLineas(cell, cw[ci] - PAD, FS));
+    const rowH   = Math.max(MIN_H, Math.max(...lineas) * LINE_H + 6);
 
     // Salto de página si no cabe
     if (y + rowH > doc.page.height - doc.page.margins.bottom - 30) {
@@ -219,7 +225,7 @@ function drawTable(doc, headers, rows, W) {
     row.forEach((cell, ci) => {
       doc.fillColor(BLACK).fontSize(FS).font('Helvetica')
         .text(String(cell ?? '–'), xr, y + 3, {
-          width: cw[ci] - PAD,
+          width:     cw[ci] - PAD,
           align:     ci === 0 ? 'left' : 'right',
           lineBreak: true,
         });
