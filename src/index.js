@@ -61,8 +61,6 @@ function tasaDelMesEgreso(fechaEgresoNorm) {
 }
 
 // ── Extrae inputs para calcularPrestaciones desde el cuerpo de la petición ────
-// Superchat envía el salario en Bs. La tasa BCV se infiere del mes de egreso
-// automáticamente desde la tabla histórica — no requiere campo adicional.
 function extraerInputs(v) {
   const fechaIngreso = normFecha(v.f_ingreso ?? v.fecha_ingreso);
   const fechaEgreso  = normFecha(v.f_egreso  ?? v.fecha_egreso);
@@ -73,19 +71,42 @@ function extraerInputs(v) {
     tasaBCV = tasaDelMesEgreso(fechaEgreso) ?? 0;
   }
 
-  // Salario: USD directo > Bs ÷ tasa BCV del mes de egreso
+  // Salario: USD directo > Bs según tipo_salario
   let salarioMensualUSD;
   if (v.salario_mensual_usd ?? v.salario_usd) {
     salarioMensualUSD = Number(v.salario_mensual_usd ?? v.salario_usd);
   } else {
-    const salBs = Number(v.salario ?? v.salario_mensual ?? 0);
+    const tipoSalario = String(v.tipo_salario ?? '').toLowerCase().trim();
+    let salBs;
+    if (tipoSalario === 'variable') {
+      // Promedio de los últimos 3 meses declarados por el trabajador
+      const total3m = Number(v['ultimo _pago_3meses'] ?? v.ultimo_pago_3meses ?? 0);
+      salBs = total3m > 0 ? total3m / 3 : Number(v.salario ?? 0);
+    } else {
+      salBs = Number(v.salario ?? v.salario_mensual ?? 0);
+    }
     salarioMensualUSD = tasaBCV > 0 ? salBs / tasaBCV : salBs;
   }
 
   const bonificacionEspecial = Number(v.bonificacion_especial ?? v.bonificacionEspecial ?? 0);
   const diasUtilidades       = Number(v.dias_utilidades ?? v.diasUtilidades ?? 30);
 
-  return { fechaIngreso, fechaEgreso, salarioMensualUSD, tasaBCV, bonificacionEspecial, diasUtilidades };
+  // Flags adicionales (sí/no)
+  const esFlag = (val) => ['sí', 'si', 'yes', 's', '1', 'true'].includes(String(val ?? '').toLowerCase().trim());
+
+  return {
+    fechaIngreso,
+    fechaEgreso,
+    salarioMensualUSD,
+    tasaBCV,
+    bonificacionEspecial,
+    diasUtilidades,
+    anticipoPrestaciones:  esFlag(v.anticipo_prestaciones),
+    empresaDebeUtilidades: esFlag(v.empresa_debe_utilidades),
+    utilidadesPendientes:  esFlag(v.utilidades_pendientes),
+    vacacionesPendientes:  esFlag(v.vacaciones_pendientes),
+    vacacionesVencidas:    Number(v.vacaciones_vencidas ?? 0),
+  };
 }
 
 // ── Textos fijos de fundamento legal ─────────────────────────────────────────
@@ -106,7 +127,7 @@ IMPORTANTE: Este cálculo es referencial. No sustituye la liquidación formal de
 `.trim();
 
 // ── Convierte resultado de calcularPrestaciones → estructura pdfGeneratorV2 ──
-function armarDataPDF(calcResult, vars) {
+function armarDataPDF(calcResult, vars, inputs = {}) {
   const r = calcResult;
   const egresoAnio = normFecha(vars.f_egreso ?? vars.fecha_egreso).split('/')[2] ?? '';
 
@@ -173,10 +194,77 @@ function armarDataPDF(calcResult, vars) {
     }] : []),
   ];
 
+  // ── Conceptos adicionales por flags ──────────────────────────────────────────
+  let extraBruto = 0;
+
+  // Vacaciones vencidas: días de período anterior no disfrutados (Art. 190)
+  if (inputs.vacacionesVencidas > 0) {
+    const monto = inputs.vacacionesVencidas * r.salarioDiarioNormal;
+    conceptos.push({
+      concepto:    `Vacaciones Vencidas – ${inputs.vacacionesVencidas} días (Art. 190 LOTTT)`,
+      dias:        inputs.vacacionesVencidas,
+      monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
+      monto,
+      base_legal:  'Art. 190 LOTTT',
+    });
+    extraBruto += monto;
+  }
+
+  // Vacaciones pendientes: período aniversario completo no disfrutado ni pagado
+  if (inputs.vacacionesPendientes) {
+    const montoVac = r.diasVac    * r.salarioDiarioNormal;
+    const montoBV  = r.diasBonVac * r.salarioDiarioNormal;
+    conceptos.push({
+      concepto:    `Vacaciones Pendientes – ${r.diasVac} días (Art. 190 LOTTT)`,
+      dias:        r.diasVac,
+      monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
+      monto:       montoVac,
+      base_legal:  'Art. 190 LOTTT',
+    });
+    conceptos.push({
+      concepto:    `Bono Vacacional Pendiente – ${r.diasBonVac} días (Art. 192 LOTTT)`,
+      dias:        r.diasBonVac,
+      monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
+      monto:       montoBV,
+      base_legal:  'Art. 192 LOTTT',
+    });
+    extraBruto += montoVac + montoBV;
+  }
+
+  // Utilidades del año anterior adeudadas por la empresa (Art. 131)
+  if (inputs.empresaDebeUtilidades) {
+    const monto = inputs.diasUtilidades * r.salarioBaseUtil;
+    conceptos.push({
+      concepto:    `Utilidades Año Anterior Adeudadas – ${inputs.diasUtilidades} días (Art. 131 LOTTT)`,
+      dias:        inputs.diasUtilidades,
+      monto_diario: parseFloat(r.salarioBaseUtil.toFixed(4)),
+      monto,
+      base_legal:  'Art. 131 LOTTT',
+    });
+    extraBruto += monto;
+  }
+
+  // Utilidades pendientes de períodos anteriores (Art. 131)
+  if (inputs.utilidadesPendientes) {
+    const monto = inputs.diasUtilidades * r.salarioBaseUtil;
+    conceptos.push({
+      concepto:    `Utilidades Pendientes Período Anterior – ${inputs.diasUtilidades} días (Art. 131 LOTTT)`,
+      dias:        inputs.diasUtilidades,
+      monto_diario: parseFloat(r.salarioBaseUtil.toFixed(4)),
+      monto,
+      base_legal:  'Art. 131 LOTTT',
+    });
+    extraBruto += monto;
+  }
+
   const deducciones = [
     { concepto: 'FAOV – Fondo de Ahorro Obligatorio para la Vivienda (1%)', monto: r.FAOV },
     { concepto: 'INCE – Instituto Nacional de Capacitación Educativa (0,5%)', monto: r.INCE },
   ];
+
+  const notaAnticipo = inputs.anticipoPrestaciones
+    ? '\nNOTA: El trabajador registra anticipo de prestaciones sociales. El empleador debe deducir el monto correspondiente de la liquidación final.'
+    : '';
 
   return {
     datos_trabajador: {
@@ -198,14 +286,14 @@ function armarDataPDF(calcResult, vars) {
       metodo_prestaciones: r.metodoAplicado === 'GARANTIA'
         ? `Método Garantía (Art. 142 A,B) – Bs. ${r.garantiaCapital.toFixed(2)}`
         : `Método Finalización (Art. 142 C) – Bs. ${r.prestacionesFinalizacion.toFixed(2)}`,
-      monto_bruto:       r.montoBruto,
+      monto_bruto:       r.montoBruto + extraBruto,
       total_deducciones: r.FAOV + r.INCE,
-      monto_neto:        r.montoAPagar,
+      monto_neto:        r.montoAPagar + extraBruto,
     },
     explicacion: {
       metodologia:     metodologia,
       fundamento_legal: FUNDAMENTO_LEGAL,
-      observaciones:   OBSERVACIONES,
+      observaciones:   OBSERVACIONES + notaAnticipo,
       es_provisional:  false,
     },
   };
@@ -257,7 +345,7 @@ app.post('/calcular', requireApiKey, (req, res) => {
     }
 
     const calcResult = calcularPrestaciones(inputs);
-    const data = armarDataPDF(calcResult, vars);
+    const data = armarDataPDF(calcResult, vars, inputs);
     cacheSet(cedula, data);
 
     const r = data.resumen;
@@ -300,7 +388,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
       }
 
       const calcResult = calcularPrestaciones(inputs);
-      data = armarDataPDF(calcResult, vars);
+      data = armarDataPDF(calcResult, vars, inputs);
       cacheSet(cedula, data);
     }
 
