@@ -61,6 +61,14 @@ function tasaDelMesEgreso(fechaEgresoNorm) {
   return TASAS_HISTORICAS[key] ?? null;
 }
 
+// Normaliza valores "falsy" de Superchat (false/null/no/no sé) → 0
+function safeNum(val, def = 0) {
+  const s = String(val ?? '').toLowerCase().trim();
+  if (['false', 'no', 'no sé', 'no se', 'null', ''].includes(s)) return def;
+  const n = Number(val);
+  return isNaN(n) ? def : n;
+}
+
 // ── Extrae inputs para calcularPrestaciones desde el cuerpo de la petición ────
 function extraerInputs(v) {
   const fechaIngreso = normFecha(v.f_ingreso ?? v.fecha_ingreso);
@@ -80,19 +88,25 @@ function extraerInputs(v) {
     const tipoSalario = String(v.tipo_salario ?? '').toLowerCase().trim();
     let salBs;
     if (tipoSalario === 'variable') {
-      // Promedio de los últimos 3 meses declarados por el trabajador
-      const total3m = Number(v['ultimo _pago_3meses'] ?? v.ultimo_pago_3meses ?? 0);
-      salBs = total3m > 0 ? total3m / 3 : Number(v.salario ?? 0);
+      const total3m = safeNum(v['ultimo _pago_3meses'] ?? v.ultimo_pago_3meses);
+      salBs = total3m > 0 ? total3m / 3 : safeNum(v.salario);
     } else {
-      salBs = Number(v.salario ?? v.salario_mensual ?? 0);
+      salBs = safeNum(v.salario ?? v.salario_mensual);
     }
     salarioMensualUSD = tasaBCV > 0 ? salBs / tasaBCV : salBs;
   }
 
-  const bonificacionEspecial = Number(v.bonificacion_especial ?? v.bonificacionEspecial ?? 0);
-  const diasUtilidades       = Number(v.dias_utilidades ?? v.diasUtilidades ?? 30);
+  const bonificacionEspecial = safeNum(v.bonificacion_especial ?? v.bonificacionEspecial);
 
-  // Flags adicionales (sí/no)
+  // utilidades_pendientes: puede ser "false" (no aplica) o un número (30/60/90 días que paga la empresa)
+  // Cuando viene como número, define tanto diasUtilidades como que hay utilidades adeudadas
+  const utilPendNum = safeNum(v.utilidades_pendientes);
+  const utilidadesPendientes = utilPendNum > 0;
+  const diasUtilidades = utilPendNum > 0 ? utilPendNum : safeNum(v.dias_utilidades ?? v.diasUtilidades, 30);
+
+  // vacaciones_vencidas: número de PERÍODOS adeudados ("false" → 0)
+  const vacacionesVencidas = safeNum(v.vacaciones_vencidas);
+
   const esFlag = (val) => ['sí', 'si', 'yes', 's', '1', 'true'].includes(String(val ?? '').toLowerCase().trim());
 
   return {
@@ -104,9 +118,9 @@ function extraerInputs(v) {
     diasUtilidades,
     anticipoPrestaciones:  esFlag(v.anticipo_prestaciones),
     empresaDebeUtilidades: esFlag(v.empresa_debe_utilidades),
-    utilidadesPendientes:  esFlag(v.utilidades_pendientes),
+    utilidadesPendientes,
     vacacionesPendientes:  esFlag(v.vacaciones_pendientes),
-    vacacionesVencidas:    Number(v.vacaciones_vencidas ?? 0),
+    vacacionesVencidas,
   };
 }
 
@@ -198,33 +212,24 @@ function armarDataPDF(calcResult, vars, inputs = {}) {
   // ── Conceptos adicionales por flags ──────────────────────────────────────────
   let extraBruto = 0;
 
-  // Vacaciones vencidas: días de período anterior no disfrutados (Art. 190)
+  // Vacaciones vencidas: N períodos adeudados (Art. 190)
+  // vacacionesVencidas = número de períodos (no días); cada período = diasVac + diasBonVac
   if (inputs.vacacionesVencidas > 0) {
-    const monto = inputs.vacacionesVencidas * r.salarioDiarioNormal;
+    const n        = inputs.vacacionesVencidas;
+    const diasVac  = r.diasVac  * n;
+    const diasBV   = r.diasBonVac * n;
+    const montoVac = diasVac * r.salarioDiarioNormal;
+    const montoBV  = diasBV  * r.salarioDiarioNormal;
     conceptos.push({
-      concepto:    `Vacaciones Vencidas – ${inputs.vacacionesVencidas} días (Art. 190 LOTTT)`,
-      dias:        inputs.vacacionesVencidas,
-      monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
-      monto,
-      base_legal:  'Art. 190 LOTTT',
-    });
-    extraBruto += monto;
-  }
-
-  // Vacaciones pendientes: período aniversario completo no disfrutado ni pagado
-  if (inputs.vacacionesPendientes) {
-    const montoVac = r.diasVac    * r.salarioDiarioNormal;
-    const montoBV  = r.diasBonVac * r.salarioDiarioNormal;
-    conceptos.push({
-      concepto:    `Vacaciones Pendientes – ${r.diasVac} días (Art. 190 LOTTT)`,
-      dias:        r.diasVac,
+      concepto:    `Vacaciones Vencidas – ${n} período(s) × ${r.diasVac} días (Art. 190 LOTTT)`,
+      dias:        diasVac,
       monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
       monto:       montoVac,
       base_legal:  'Art. 190 LOTTT',
     });
     conceptos.push({
-      concepto:    `Bono Vacacional Pendiente – ${r.diasBonVac} días (Art. 192 LOTTT)`,
-      dias:        r.diasBonVac,
+      concepto:    `Bono Vacacional Vencido – ${n} período(s) × ${r.diasBonVac} días (Art. 192 LOTTT)`,
+      dias:        diasBV,
       monto_diario: parseFloat(r.salarioDiarioNormal.toFixed(4)),
       monto:       montoBV,
       base_legal:  'Art. 192 LOTTT',
