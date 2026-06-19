@@ -11,6 +11,7 @@ const { handleMessage }        = require('./conversation');
 const { calcularPrestaciones } = require('./calculator');
 const { generatePDFV2 }        = require('./pdfGeneratorV2');
 const { TASAS_HISTORICAS }     = require('./bcvRates');
+const { guardarRegistro }      = require('./airtableClient');
 
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
@@ -398,6 +399,25 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
     const baseUrl  = process.env.BASE_URL ?? `${req.protocol}://${req.get('host')}`;
     const montoFmt = Number(data.resumen.monto_neto).toLocaleString('es-VE', {
       minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+
+    // Guardar en Airtable (no bloquea la respuesta)
+    guardarRegistro({
+      cedula,
+      nombre:            data.datos_trabajador.nombre,
+      empresa:           data.datos_trabajador.empresa,
+      cargo:             data.datos_trabajador.cargo,
+      fechaIngreso:      data.datos_trabajador.fecha_ingreso,
+      fechaEgreso:       data.datos_trabajador.fecha_egreso,
+      tiempoServicio:    data.datos_trabajador.tiempo_servicio,
+      salarioMensualBs:  data.datos_trabajador.salario_mensual,
+      tipoSalario:       data.datos_trabajador.tipo_salario,
+      motivoTerminacion: data.datos_trabajador.motivo_terminacion,
+      metodoAplicado:    data.resumen.metodo_prestaciones,
+      montoBruto:        data.resumen.monto_bruto,
+      totalDeducciones:  data.resumen.total_deducciones,
+      montoNeto:         data.resumen.monto_neto,
+      canal:             'SUPERCHAT',
     });
 
     res.json({

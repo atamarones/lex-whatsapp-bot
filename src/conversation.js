@@ -310,8 +310,9 @@ async function handleMessage(phone, message) {
 
 // ── Generación de PDF (sin OpenAI) ─────────────────────────────────────────
 async function generateAndSendPDF(phone, session) {
-  const { generatePDF }  = require('./pdfGenerator');
-  const { sendDocument } = require('./whapiClient');
+  const { generatePDF }    = require('./pdfGenerator');
+  const { sendDocument }   = require('./whapiClient');
+  const { guardarRegistro } = require('./airtableClient');
   const os   = require('os');
   const path = require('path');
   const fs   = require('fs');
@@ -350,6 +351,24 @@ async function generateAndSendPDF(phone, session) {
     await sendDocument(phone, outPath, filename, `📄 *Planilla de Liquidación*\nMONTO NETO: Bs. ${montoFmt}`);
     await sendText(phone, STATES.DONE.prompt(d));
     sm.updateState(phone, 'DONE');
+
+    guardarRegistro({
+      cedula:           d.cedula,
+      nombre:           d.fullName,
+      empresa:          '',
+      cargo:            d.cargo,
+      fechaIngreso:     d.fechaIngreso,
+      fechaEgreso:      d.fechaEgreso,
+      tiempoServicio:   `${calcResult.totalAnos} año(s), ${calcResult.mesesExactos % 12} mes(es) y ${calcResult.diasExtra} día(s)`,
+      salarioMensualBs: d.salarioMensualBs,
+      tipoSalario:      d.tipoNomina ?? 'MENSUAL',
+      motivoTerminacion: d.motivoRetiro ?? '',
+      metodoAplicado:   calcResult.metodoAplicado,
+      montoBruto:       calcResult.montoBruto,
+      totalDeducciones: calcResult.FAOV + calcResult.INCE,
+      montoNeto:        calcResult.montoAPagar,
+      canal:            'WHATSAPP',
+    });
   } catch (err) {
     console.error('[pdf] error generando PDF:', err);
     await sendText(phone,
