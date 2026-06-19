@@ -11,7 +11,7 @@ const { handleMessage }        = require('./conversation');
 const { calcularPrestaciones } = require('./calculator');
 const { generatePDFV2 }        = require('./pdfGeneratorV2');
 const { TASAS_HISTORICAS }     = require('./bcvRates');
-const { guardarRegistro }      = require('./airtableClient');
+const { guardarRegistro, guardarFeedback } = require('./airtableClient');
 
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
@@ -445,6 +445,17 @@ app.get('/pdf/:token', (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="Liquidacion_${cedula}.pdf"`);
   fs.createReadStream(entry.filePath).pipe(res);
+});
+
+// ── POST /feedback → guarda valoración del servicio en Airtable ──────────────
+// Body: { cedula?, movil?, valoracion, razon? }
+app.post('/feedback', requireApiKey, async (req, res) => {
+  const { cedula, movil, valoracion, razon } = req.body ?? {};
+  if (!valoracion) return res.status(400).json({ error: 'Campo "valoracion" requerido.' });
+  if (!cedula && !movil) return res.status(400).json({ error: 'Se requiere "cedula" o "movil".' });
+
+  await guardarFeedback({ cedula, movil, valoracion, razon });
+  res.json({ ok: true });
 });
 
 // ── Health check ──────────────────────────────────────────────────────────────

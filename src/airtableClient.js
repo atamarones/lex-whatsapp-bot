@@ -48,4 +48,49 @@ async function guardarRegistro(datos) {
   }
 }
 
-module.exports = { guardarRegistro };
+/**
+ * Busca el registro más reciente por cédula o móvil y actualiza el feedback.
+ * Si no encuentra registro previo, crea uno nuevo solo con el feedback.
+ */
+async function guardarFeedback({ cedula, movil, valoracion, razon }) {
+  try {
+    const base = getBase();
+    const tabla = TABLE();
+
+    // Buscar registro más reciente por cédula o móvil
+    const filtro = cedula
+      ? `{Cédula}="${cedula}"`
+      : `{Móvil}="${movil}"`;
+
+    const registros = await base(tabla).select({
+      filterByFormula: filtro,
+      sort: [{ field: 'Fecha Cálculo', direction: 'desc' }],
+      maxRecords: 1,
+    }).firstPage();
+
+    const campos = {
+      'Valoración': String(valoracion ?? ''),
+      ...(razon ? { 'Razón': String(razon) } : {}),
+    };
+
+    if (registros.length > 0) {
+      await base(tabla).update(registros[0].id, campos);
+      console.log(`[airtable] feedback actualizado: ${cedula ?? movil}`);
+    } else {
+      await base(tabla).create([{
+        fields: {
+          'Cédula': String(cedula ?? ''),
+          'Móvil':  String(movil ?? ''),
+          'Canal':  'FEEDBACK',
+          'Fecha Cálculo': new Date().toISOString().slice(0, 10),
+          ...campos,
+        },
+      }]);
+      console.log(`[airtable] feedback sin registro previo, creado nuevo: ${cedula ?? movil}`);
+    }
+  } catch (err) {
+    console.error('[airtable] error al guardar feedback:', err.message);
+  }
+}
+
+module.exports = { guardarRegistro, guardarFeedback };
