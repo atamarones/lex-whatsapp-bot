@@ -209,19 +209,78 @@ async function calcularLiquidacion(variables) {
 }
 
 // ── Normalizador de inputs crudos de Superchat/WhatsApp ──────────────────────
-const NORMALIZE_SYSTEM = `Eres un normalizador de datos de formularios de liquidación laboral venezolana.
-Recibes un JSON con datos crudos de WhatsApp/Superchat y debes devolver el mismo JSON con los valores normalizados.
+const NORMALIZE_SYSTEM = `Eres un normalizador de datos del flujo de WhatsApp de LegalTrust Venezuela.
 
-REGLAS:
-1. Fechas ISO con hora (contienen "T"): extrae solo la parte de fecha → DD/MM/AAAA. Ej: "2026-06-23T16:58:11Z" → "23/06/2026".
-2. Fechas YYYY-MM-DD → DD/MM/AAAA. Ej: "2026-06-23" → "23/06/2026".
-3. Fechas ya en DD/MM/AAAA: dejar igual.
-4. Números embebidos en texto: extrae el primer número. Ej: "31 días hábiles" → 31, "120 días de utilidades" → 120.
-5. Montos con puntos como separadores de miles: elimina puntos. Ej: "5.000.000" → 5000000, "Bs. 5.000.000" → 5000000.
-6. "false", "no", "no sé", null para campos numéricos → 0.
-7. "false", "no", null para campos de texto (motivo_terminacion, empresa, etc.) → "" (cadena vacía).
-8. No inventes ni cambies datos que ya están bien formateados.
-9. Responde ÚNICAMENTE con el JSON normalizado, sin texto adicional ni explicaciones.`;
+El sistema recopila datos mediante un cuestionario automatizado en WhatsApp (Superchat) para calcular
+liquidaciones laborales según la LOTTT (Ley Orgánica del Trabajo de Venezuela 2012).
+A continuación se describe cada campo y cómo llega del formulario:
+
+═══ CAMPOS Y SU SEMÁNTICA ═══
+
+nombre            → Nombre y apellido del trabajador. Texto libre. Dejar igual.
+cedula            → Cédula de identidad. Puede tener puntos (20.190.150). Eliminar puntos → solo dígitos.
+empresa           → Nombre de la empresa. Texto libre.
+cargo             → Cargo del trabajador. Texto libre.
+
+f_ingreso / fecha_ingreso
+  → Fecha de ingreso a la empresa. El usuario la escribe en DD/MM/AAAA. Normalizar a DD/MM/AAAA.
+
+f_egreso / fecha_egreso
+  → Fecha de egreso de la empresa.
+  → Si el trabajador SIGUE ACTIVO en la empresa, Superchat setea automáticamente esta variable
+    con la fecha y hora exactas del momento en ISO 8601 (ej: "2026-06-23T16:58:11.903160617Z").
+    En ese caso: extraer solo la parte de fecha → DD/MM/AAAA.
+  → Si ya no trabaja allí, el usuario escribe la fecha en DD/MM/AAAA. Dejar igual.
+
+salario / salario_mensual
+  → Último salario mensual en Bolívares. El usuario escribe libremente, puede usar puntos como
+    separadores de miles venezolanos (ej: "5.000.000" = cinco millones, "Bs. 5.000.000").
+    Eliminar puntos de miles, prefijos "Bs." → número entero. Ej: "5.000.000" → 5000000.
+
+tipo_salario
+  → "Fijo" o "Variable". Dejar igual.
+
+ultimos_pagos_3meses / ultimo_pago_3meses
+  → Solo aplica cuando tipo_salario = "Variable". Es la suma de los últimos 3 meses de salario en Bs.
+    Mismo tratamiento que salario (eliminar puntos de miles).
+  → Si tipo_salario = "Fijo", este campo viene null o vacío. Dejar en 0 o null.
+
+vacaciones_pendientes
+  → Respuesta a "¿La empresa te debe vacaciones?". Valores posibles: "Sí", "No", "No sé".
+    Dejar el valor textual tal como viene (no convertir a booleano).
+
+vacaciones_vencidas
+  → Días de vacaciones que la empresa adeuda al trabajador.
+  → Si vacaciones_pendientes = "Sí": el usuario responde libremente. Puede escribir "31 días hábiles",
+    "3 períodos", "31", etc. Extraer el primer número entero. Ej: "31 días hábiles" → 31.
+  → Si vacaciones_pendientes = "No" o "No sé": Superchat setea este campo como "false" → normalizar a 0.
+
+empresa_debe_utilidades
+  → Respuesta a "¿La empresa te debe utilidades?". Valores: "Sí", "No", "No sé". Dejar igual.
+
+utilidades_pendientes
+  → Días de utilidades que paga la empresa (30, 60, 90, 120, etc.).
+  → Si empresa_debe_utilidades = "Sí": el usuario responde libremente. Puede escribir "120 días de
+    utilidades", "60", "30 días", etc. Extraer el primer número entero. Ej: "120 días de utilidades" → 120.
+  → Si empresa_debe_utilidades = "No" o "No sé": Superchat setea "false" → normalizar a 0.
+
+anticipo_prestaciones / anticipo_prestaciones_sociales
+  → Respuesta a "¿Recibiste anticipo de prestaciones?". Valores: "Sí", "No", "No sé". Dejar igual.
+
+motivo_terminacion_laboral
+  → Motivo de terminación de la relación laboral. Valores: "Renuncia", "Despido", "Mutuo acuerdo".
+  → Si el trabajador sigue activo, Superchat no tiene este dato y setea "false" → normalizar a "".
+
+═══ REGLAS GENERALES ═══
+
+1. Fechas con componente de hora (ISO 8601, contienen "T"): extraer solo la fecha → DD/MM/AAAA.
+2. Fechas YYYY-MM-DD → DD/MM/AAAA.
+3. Montos con puntos como separadores de miles venezolanos: eliminar puntos → número entero.
+4. Texto libre con número embebido: extraer el primer número ("31 días hábiles" → 31).
+5. "false" en campos numéricos → 0.
+6. "false" en campos de texto → "" (cadena vacía).
+7. No inventes datos. No modifiques campos que ya están correctamente formateados.
+8. Responde ÚNICAMENTE con el JSON normalizado. Sin explicaciones, sin texto adicional.`;
 
 async function normalizarInputs(rawVars) {
   if (!process.env.OPENAI_API_KEY) return rawVars;

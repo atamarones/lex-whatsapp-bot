@@ -127,7 +127,7 @@ function extraerInputs(v) {
     tasaBCV,
     bonificacionEspecial,
     diasUtilidades,
-    anticipoPrestaciones:  esFlag(v.anticipo_prestaciones),
+    anticipoPrestaciones:  esFlag(v.anticipo_prestaciones ?? v.anticipo_prestaciones_sociales),
     empresaDebeUtilidades: esFlag(v.empresa_debe_utilidades),
     utilidadesPendientes,
     vacacionesPendientes:  esFlag(v.vacaciones_pendientes),
@@ -293,7 +293,9 @@ function armarDataPDF(calcResult, vars, inputs = {}) {
       tiempo_servicio:    tiempoServicio,
       salario_mensual:    r.salarioMensualBs,
       salario_diario:     r.salarioDiarioNormal,
-      motivo_terminacion: vars.motivo_terminacion_laboral ?? vars.motivo_terminacion ?? '',
+      motivo_terminacion: (vars.motivo_terminacion_laboral && vars.motivo_terminacion_laboral !== 'false')
+        ? vars.motivo_terminacion_laboral
+        : (vars.motivo_terminacion ?? ''),
     },
     conceptos,
     deducciones,
