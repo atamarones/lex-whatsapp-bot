@@ -119,14 +119,6 @@ function generatePDFV2(data, outputPath) {
       .text(exp.observaciones ?? '–', { align: 'justify', lineGap: 2 });
     doc.moveDown(0.8);
 
-    sectionTitle(doc, '7. CUADRO RESUMEN FINAL', W);
-    const resumenRows = [
-      ...conceptos.map(c => [c.concepto, `Bs. ${fmt(c.monto)}`, c.base_legal ?? '']),
-      ...deds.map(d => [`(-) ${d.concepto}`, `Bs. ${fmt(d.monto)}`, '']),
-    ];
-    drawTable(doc, ['CONCEPTO', 'MONTO', 'BASE LEGAL'], resumenRows, W);
-    drawTotalRow(doc, 'TOTAL NETO Bs.', fmt(r.monto_neto), W);
-
     drawFooter(doc, W, 2);
 
     doc.end();

@@ -12,6 +12,7 @@ const { calcularPrestaciones } = require('./calculator');
 const { generatePDFV2 }        = require('./pdfGeneratorV2');
 const { TASAS_HISTORICAS }     = require('./bcvRates');
 const { guardarRegistro, guardarFeedback } = require('./airtableClient');
+const { normalizarInputs }                 = require('./openaiClient');
 
 const app  = express();
 const PORT = process.env.PORT ?? 3000;
@@ -39,8 +40,10 @@ function requireApiKey(req, res, next) {
 function normFecha(s) {
   if (!s) return '';
   s = String(s).trim();
+  // ISO con hora (2026-06-23T16:58:11.903Z) → extraer solo la parte de fecha
+  if (s.includes('T')) s = s.split('T')[0];
   // YYYY-MM-DD → DD/MM/AAAA
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const [y, m, d] = s.split('-');
     return `${d}/${m}/${y}`;
   }
@@ -60,8 +63,21 @@ function tasaDelMesEgreso(fechaEgresoNorm) {
 function safeNum(val, def = 0) {
   const s = String(val ?? '').toLowerCase().trim();
   if (['false', 'no', 'no sé', 'no se', 'null', ''].includes(s)) return def;
-  const n = Number(val);
-  return isNaN(n) ? def : n;
+  // Número JS limpio
+  let n = Number(val);
+  if (!isNaN(n)) return n;
+  // Formato venezolano: puntos = miles, coma = decimal (ej. "5.000.000" → 5000000)
+  n = Number(String(val).replace(/\./g, '').replace(',', '.').trim());
+  if (!isNaN(n)) return n;
+  // Texto libre: "31 días hábiles" → 31, "120 días de utilidades" → 120
+  const match = String(val).match(/\d+/);
+  return match ? parseInt(match[0], 10) : def;
+}
+
+function validarCalculo(r) {
+  for (const k of ['salarioDiarioNormal', 'prestacionesSociales', 'montoBruto', 'montoAPagar']) {
+    if (!isFinite(r[k])) throw new Error(`Cálculo inválido: "${k}" = ${r[k]}. Verifica fechas y salario.`);
+  }
 }
 
 // ── Extrae inputs para calcularPrestaciones desde el cuerpo de la petición ────
@@ -327,10 +343,11 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ── POST /calcular → JSON con el cálculo ─────────────────────────────────────
-app.post('/calcular', requireApiKey, (req, res) => {
-  const vars = req.body;
-  if (!vars?.cedula) return res.status(400).json({ error: 'Campo "cedula" requerido.' });
+app.post('/calcular', requireApiKey, async (req, res) => {
+  const rawVars = req.body;
+  if (!rawVars?.cedula) return res.status(400).json({ error: 'Campo "cedula" requerido.' });
 
+  const vars   = await normalizarInputs(rawVars);
   const cedula = String(vars.cedula).replace(/\D/g, '');
 
   try {
@@ -344,6 +361,7 @@ app.post('/calcular', requireApiKey, (req, res) => {
     }
 
     const calcResult = calcularPrestaciones(inputs);
+    validarCalculo(calcResult);
     const data = armarDataPDF(calcResult, vars, inputs);
     cacheSet(cacheKey(), data);
 
@@ -366,8 +384,9 @@ app.post('/calcular', requireApiKey, (req, res) => {
 
 // ── POST /calcular-pdf → JSON con URL de descarga (para Superchat) ────────────
 app.post('/calcular-pdf', requireApiKey, async (req, res) => {
-  const vars = req.body;
-  if (!vars?.cedula) return res.status(400).json({ error: 'Campo "cedula" requerido.' });
+  const rawVars = req.body;
+  if (!rawVars?.cedula) return res.status(400).json({ error: 'Campo "cedula" requerido.' });
+  const vars = await normalizarInputs(rawVars);
 
   const cedula  = String(vars.cedula).replace(/\D/g, '');
   const token   = `${cedula}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -388,6 +407,7 @@ app.post('/calcular-pdf', requireApiKey, async (req, res) => {
       }
 
       const calcResult = calcularPrestaciones(inputs);
+      validarCalculo(calcResult);
       data = armarDataPDF(calcResult, vars, inputs);
       cacheSet(ck, data);
     }

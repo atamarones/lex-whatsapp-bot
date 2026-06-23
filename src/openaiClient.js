@@ -208,4 +208,43 @@ async function calcularLiquidacion(variables) {
   }
 }
 
-module.exports = { calcularLiquidacion };
+// ── Normalizador de inputs crudos de Superchat/WhatsApp ──────────────────────
+const NORMALIZE_SYSTEM = `Eres un normalizador de datos de formularios de liquidación laboral venezolana.
+Recibes un JSON con datos crudos de WhatsApp/Superchat y debes devolver el mismo JSON con los valores normalizados.
+
+REGLAS:
+1. Fechas ISO con hora (contienen "T"): extrae solo la parte de fecha → DD/MM/AAAA. Ej: "2026-06-23T16:58:11Z" → "23/06/2026".
+2. Fechas YYYY-MM-DD → DD/MM/AAAA. Ej: "2026-06-23" → "23/06/2026".
+3. Fechas ya en DD/MM/AAAA: dejar igual.
+4. Números embebidos en texto: extrae el primer número. Ej: "31 días hábiles" → 31, "120 días de utilidades" → 120.
+5. Montos con puntos como separadores de miles: elimina puntos. Ej: "5.000.000" → 5000000, "Bs. 5.000.000" → 5000000.
+6. "false", "no", "no sé", null para campos numéricos → 0.
+7. "false", "no", null para campos de texto (motivo_terminacion, empresa, etc.) → "" (cadena vacía).
+8. No inventes ni cambies datos que ya están bien formateados.
+9. Responde ÚNICAMENTE con el JSON normalizado, sin texto adicional ni explicaciones.`;
+
+async function normalizarInputs(rawVars) {
+  if (!process.env.OPENAI_API_KEY) return rawVars;
+  try {
+    const now = new Date();
+    const hoy = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: NORMALIZE_SYSTEM },
+        { role: 'user', content: `Fecha de hoy: ${hoy}\n\nDatos a normalizar:\n${JSON.stringify(rawVars, null, 2)}` },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0,
+    });
+
+    const normalized = JSON.parse(response.choices[0].message.content);
+    return { ...rawVars, ...normalized };
+  } catch (err) {
+    console.warn('[normalizarInputs] fallback a datos crudos:', err.message);
+    return rawVars;
+  }
+}
+
+module.exports = { calcularLiquidacion, normalizarInputs };
