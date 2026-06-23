@@ -109,10 +109,14 @@ function extraerInputs(v) {
 
   const bonificacionEspecial = safeNum(v.bonificacion_especial ?? v.bonificacionEspecial);
 
-  // utilidades_pendientes: puede ser "false" (no aplica) o un número (30/60/90 días que paga la empresa)
-  // Cuando viene como número, define tanto diasUtilidades como que hay utilidades adeudadas
+  // empresa_debe_utilidades: flag Superchat ("Sí"/"No"/"No sé") → indica si la empresa debe utilidades
+  // utilidades_pendientes: número de días que paga la empresa (30/60/90/120...) cuando debe_utilidades=Sí
+  //   Si debe_utilidades=No/No sé → Superchat setea "false" → 0
+  // IMPORTANTE: utilidadesPendientes solo se activa cuando empresa_debe_utilidades=No, para evitar
+  //   doble conteo (ambos agregarían un concepto de utilidades en el PDF con los mismos días)
+  const empresaDebeUtilidades = esFlag(v.empresa_debe_utilidades);
   const utilPendNum = safeNum(v.utilidades_pendientes);
-  const utilidadesPendientes = utilPendNum > 0;
+  const utilidadesPendientes = utilPendNum > 0 && !empresaDebeUtilidades;
   const diasUtilidades = utilPendNum > 0 ? utilPendNum : safeNum(v.dias_utilidades ?? v.diasUtilidades, 30);
 
   // vacaciones_vencidas: número de DÍAS de vacaciones adeudados ("false" → 0)
@@ -128,7 +132,7 @@ function extraerInputs(v) {
     bonificacionEspecial,
     diasUtilidades,
     anticipoPrestaciones:  esFlag(v.anticipo_prestaciones ?? v.anticipo_prestaciones_sociales),
-    empresaDebeUtilidades: esFlag(v.empresa_debe_utilidades),
+    empresaDebeUtilidades,
     utilidadesPendientes,
     vacacionesPendientes:  esFlag(v.vacaciones_pendientes),
     vacacionesVencidas,
